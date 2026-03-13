@@ -116,6 +116,8 @@ def crop_to_timestamp(
     # First pass: collect start/setMetadata/finish info that occurred before start_ts
     start_payloads: dict[int, bytes] = {}
     start_timestamps: dict[int, int] = {}
+    # last data payload seen for an entry before start_ts (used to emit an initial snapshot)
+    last_data_before: dict[int, bytes] = {}
     latest_setmd: dict[int, bytes] = {}
     finished_before = set()
 
@@ -140,6 +142,16 @@ def crop_to_timestamp(
                 latest_setmd[md.entry] = bytes(rec.data)
             except TypeError:
                 continue
+        else:
+            # capture last data payload for entries before the crop start; this lets us
+            # emit an initial snapshot at timestamp 0 so values like RSLState are present
+            # during the padding even if no data point appears exactly at the crop start.
+            try:
+                # non-control data record
+                last_data_before[rec.entry] = bytes(rec.data)
+            except Exception:
+                # ignore anything that doesn't behave like data
+                pass
 
     # active entries: started before crop and not finished before crop
     active_entries = [
@@ -158,10 +170,15 @@ def crop_to_timestamp(
     # Emit start records for active entries (timestamp set to start_ts)
     for eid in active_entries:
         payload = start_payloads[eid]
-        write_record(out, 0, start_ts, payload)
+        # shift start to 0 in the cropped file
+        write_record(out, 0, 0, payload)
         # If there was a setMetadata before start_ts for this entry, emit it (so metadata matches)
         if eid in latest_setmd:
-            write_record(out, 0, start_ts, latest_setmd[eid])
+            write_record(out, 0, 0, latest_setmd[eid])
+        # If we have a last-known data value for the entry from before the crop, emit
+        # it at timestamp 0 so the initial state is present in the cropped log.
+        if eid in last_data_before:
+            write_record(out, eid, 0, last_data_before[eid])
 
     # Second pass: write every record with timestamp >= start_ts and <= end_ts (if provided)
     reader2 = DataLogReader(buf)
@@ -172,8 +189,11 @@ def crop_to_timestamp(
             # records are ordered by timestamp; we can stop
             break
 
-        # record lies within window; write it
-        write_record(out, rec.entry, rec.timestamp, bytes(rec.data))
+        # record lies within window; write it with timestamps shifted so crop starts at 0
+        shifted_ts = rec.timestamp - start_ts
+        if shifted_ts < 0:
+            shifted_ts = 0
+        write_record(out, rec.entry, shifted_ts, bytes(rec.data))
 
         # Update active set for control records inside the window
         if rec.isStart():
@@ -196,7 +216,11 @@ def crop_to_timestamp(
             payload = bytes([1]) + int(eid).to_bytes(
                 4, byteorder="little", signed=False
             )
-            write_record(out, 0, end_ts, payload)
+            # shift end finish timestamp as well
+            shifted_end = end_ts - start_ts
+            if shifted_end < 0:
+                shifted_end = 0
+            write_record(out, 0, shifted_end, payload)
 
     return bytes(out)
 
