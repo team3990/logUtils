@@ -6,7 +6,7 @@ from argparse import ArgumentParser
 from typing import Optional
 
 from datalog import DataLogReader
-from writelog import write_record
+from utils import write_record
 
 RSL_STATE_ID = "/Robot/SystemStats/RSLState"
 
@@ -227,7 +227,7 @@ def crop_to_timestamp(
 
 
 def process_path(
-    path: str, start_pad_sec: float = 5.0, end_pad_sec: float = 5.0
+    path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000
 ) -> None:
     with open(path, "rb") as f:
         buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
@@ -246,7 +246,7 @@ def process_path(
             break
 
     # leave start_pad_sec seconds before the first false for the start crop
-    start_pad_us = int(start_pad_sec * 1_000_000)
+    start_pad_us = int(start_pad_ms * 1000)
     crop_start_ts = found_false - start_pad_us
     if crop_start_ts < min_ts:
         crop_start_ts = min_ts
@@ -257,7 +257,7 @@ def process_path(
     #   crop_end = true_start + end_pad = confirmed_true - TRUE_CONFIRM_US + end_pad
     crop_end_ts: Optional[int] = None
     if found_true_after is not None:
-        end_pad_us = int(end_pad_sec * 1_000_000)
+        end_pad_us = int(end_pad_ms * 1000)
         crop_end_ts = found_true_after - TRUE_CONFIRM_US + end_pad_us
 
     # If the computed end would be before the start crop, ignore end cropping.
@@ -276,25 +276,24 @@ def process_path(
 
 
 if __name__ == "__main__":
-    parser = ArgumentParser(
-        description="Crop WPILOG files around RSL false/true transitions"
-    )
+    parser = ArgumentParser(description="Crop log files based on rsl state")
     parser.add_argument("paths", nargs="+", help="Input log file(s) to crop")
     parser.add_argument(
         "--start-pad",
         type=float,
-        default=5.0,
+        default=5000,
         dest="start_pad",
-        help="Seconds to keep before the first RSL-false (default: 5)",
+        help="Miliseconds to keep before the first RSL-false (default: 5)",
     )
     parser.add_argument(
         "--end-pad",
         type=float,
-        default=5.0,
+        default=5000,
         dest="end_pad",
-        help="Seconds to keep after the RSL true-start (default: 5)",
+        help="Miliseconds to keep after the RSL true-start (default: 5)",
     )
     args = parser.parse_args()
 
     for p in args.paths:
-        process_path(p, start_pad_sec=args.start_pad, end_pad_sec=args.end_pad)
+        print(f"Processing {p}")
+        process_path(p, args.start_pad, args.end_pad)

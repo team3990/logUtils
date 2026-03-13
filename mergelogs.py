@@ -1,24 +1,14 @@
+import argparse
 import mmap
 import struct
-import sys
 
 from datalog import DataLogReader
-from writelog import patch_control_entry_id, write_record
+from utils import patch_control_entry_id, write_record
 
 
-def merge_logs(log1_path: str, log2_path: str, output_path: str) -> None:
-    with open(log1_path, "rb") as f:
-        buf1 = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-    with open(log2_path, "rb") as f:
-        buf2 = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-
-    reader1 = DataLogReader(buf1)
-    reader2 = DataLogReader(buf2)
-
-    if not reader1:
-        raise ValueError(f"Not a valid WPILOG file: {log1_path}")
-    if not reader2:
-        raise ValueError(f"Not a valid WPILOG file: {log2_path}")
+def merge_logs(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
+    if len(input_paths) == 0:
+        raise ValueError("no input files")
 
     # basic header (v1.0) and empty extra header
     out = bytearray()
@@ -28,66 +18,94 @@ def merge_logs(log1_path: str, log2_path: str, output_path: str) -> None:
 
     max_entry_id = 0
     last_timestamp = 0
+    next_entry_id = 0
 
-    # copy records from the first log without editing
-    # track the last timestamp of the 1st log to offset the 2nd
-    for record in reader1:
-        write_record(out, record.entry, record.timestamp, bytes(record.data))
-        if record.timestamp > last_timestamp:
-            last_timestamp = record.timestamp
-        if record.isStart():
-            try:
-                start = record.getStartData()
-                if start.entry > max_entry_id:
-                    max_entry_id = start.entry
-            except TypeError:
-                pass
+    # Process files in order. For the first file we copy records verbatim while
+    # discovering the maximum entry id and last timestamp. For each subsequent
+    # file we remap entry IDs (assigning increasing IDs starting after the max
+    # seen so far) and offset timestamps so the file sits after the previous one.
+    for i, path in enumerate(input_paths):
+        with open(path, "rb") as f:
+            buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
-    # offset the timestamps of the 2nd log and add a 1 ms gap to prevend collision
-    timestamp_offset = last_timestamp + 1000  # microseconds
+        reader = DataLogReader(buf)
+        if not reader:
+            raise ValueError(f"Not a valid WPILOG file: {path}")
 
-    entry_id_map: dict[int, int] = {}
-    next_entry_id = max_entry_id + 1
+        # For the first file, copy verbatim and initialize next_entry_id
+        if i == 0:
+            for record in reader:
+                write_record(out, record.entry, record.timestamp, bytes(record.data))
+                if record.timestamp > last_timestamp:
+                    last_timestamp = record.timestamp
+                if record.isStart():
+                    try:
+                        start = record.getStartData()
+                        if start.entry > max_entry_id:
+                            max_entry_id = start.entry
+                    except TypeError:
+                        pass
 
-    for record in reader2:
-        new_timestamp = record.timestamp + timestamp_offset
-
-        if record.isStart():
-            try:
-                start = record.getStartData()
-                entry_id_map[start.entry] = next_entry_id
-                next_entry_id += 1
-            except TypeError:
-                pass
-
-        if record.entry == 0:
-            if len(record.data) >= 5:
-                payload_entry_id = int.from_bytes(record.data[1:5], byteorder="little")
-                remapped_id = entry_id_map.get(payload_entry_id, payload_entry_id)
-                patched_data = patch_control_entry_id(bytes(record.data), remapped_id)
-            else:
-                patched_data = bytes(record.data)
-            write_record(out, 0, new_timestamp, patched_data)
+            next_entry_id = max_entry_id + 1
+            # small gap after the first file
+            last_timestamp = last_timestamp
         else:
-            new_entry_id = entry_id_map.get(record.entry, record.entry)
-            write_record(out, new_entry_id, new_timestamp, bytes(record.data))
+            # gap in microseconds
+            gap_us = int(gap_ms * 1000)
+            timestamp_offset = last_timestamp + gap_us
+
+            # map of entry ids for this file -> new entry id in output
+            entry_id_map: dict[int, int] = {}
+
+            for record in reader:
+                new_timestamp = record.timestamp + timestamp_offset
+
+                if record.isStart():
+                    try:
+                        start = record.getStartData()
+                        entry_id_map[start.entry] = next_entry_id
+                        next_entry_id += 1
+                    except TypeError:
+                        pass
+
+                if record.entry == 0:
+                    if len(record.data) >= 5:
+                        payload_entry_id = int.from_bytes(
+                            record.data[1:5], byteorder="little"
+                        )
+                        remapped_id = entry_id_map.get(
+                            payload_entry_id, payload_entry_id
+                        )
+                        patched_data = patch_control_entry_id(
+                            bytes(record.data), remapped_id
+                        )
+                    else:
+                        patched_data = bytes(record.data)
+                    write_record(out, 0, new_timestamp, patched_data)
+                else:
+                    new_entry_id = entry_id_map.get(record.entry, record.entry)
+                    write_record(out, new_entry_id, new_timestamp, bytes(record.data))
+
+                # update last_timestamp as we write new records
+                if new_timestamp > last_timestamp:
+                    last_timestamp = new_timestamp
 
     with open(output_path, "wb") as f:
         f.write(out)
 
-    print(f"Merged log written to {output_path}")
-    print(f"  Log1: last timestamp {last_timestamp / 1_000_000:.3f}s")
-    print(
-        f"  Log2: offset by {timestamp_offset / 1_000_000:.3f}s, {len(entry_id_map)} entries remapped"
-    )
-
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(
-            "Usage: mergelogs.py <log1.wpilog> <log2.wpilog> <output.wpilog>",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+    parser = argparse.ArgumentParser(description="Concatenate multiple WPILOG files")
+    parser.add_argument(
+        "inputs", nargs="+", help="Input WPILOG files to concatenate (order matters)"
+    )
+    parser.add_argument("-o", "--output", required=True, help="Output WPILOG path")
+    parser.add_argument(
+        "--gap",
+        type=float,
+        default=1.0,
+        help="Gap in milliseconds between files (default: 1 ms)",
+    )
+    args = parser.parse_args()
 
-    merge_logs(sys.argv[1], sys.argv[2], sys.argv[3])
+    merge_logs(args.inputs, args.output, gap_ms=args.gap)
