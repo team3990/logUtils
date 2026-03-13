@@ -2,8 +2,8 @@ import argparse
 import mmap
 import struct
 
-from datalog import DataLogReader
-from utils import patch_control_entry_id, write_record
+from lib.datalog import DataLogReader
+from lib.utils import patch_control_entry_id, write_record
 
 
 def merge_logs(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:

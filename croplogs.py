@@ -5,8 +5,8 @@ import sys
 from argparse import ArgumentParser
 from typing import Optional
 
-from datalog import DataLogReader
-from utils import write_record
+from lib.datalog import DataLogReader
+from lib.utils import write_record
 
 RSL_STATE_ID = "/Robot/SystemStats/RSLState"
 
