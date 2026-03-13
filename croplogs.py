@@ -10,11 +10,26 @@ from writelog import write_record
 RSL_STATE_ID = "/Robot/SystemStats/RSLState"
 
 
-def _find_rsl_true_timestamp(buf: bytes) -> Optional[int]:
+def _find_rsl_false_then_true_timestamps(
+    buf: bytes,
+) -> tuple[Optional[int], Optional[int]]:
+    """Return (first_false_ts, first_true_after_false_ts).
+
+    first_false_ts: timestamp of the first record where RSLState is False.
+    first_true_after_false_ts: timestamp of the first record after that where RSLState becomes True.
+    Either value may be None if not found or the buffer isn't a valid log.
+    """
     reader = DataLogReader(buf)
     if not reader:
-        return None
+        return (None, None)
+
     entries = {}
+    found_false_ts: Optional[int] = None
+    candidate_true_start: Optional[int] = None
+    # require continuous true for at least 20 seconds
+    # to ensure it doesnt crop after a-stop or the auto 3-sec break
+    TRUE_CONFIRM_US = 20000000
+
     for rec in reader:
         if rec.isStart():
             try:
@@ -37,36 +52,81 @@ def _find_rsl_true_timestamp(buf: bytes) -> Optional[int]:
         else:
             entry = entries.get(rec.entry)
             if not entry:
+                # still advance time — candidate_true_start may be confirmed by any later timestamp
+                if (
+                    candidate_true_start is not None
+                    and rec.timestamp >= candidate_true_start + TRUE_CONFIRM_US
+                ):
+                    return (found_false_ts, candidate_true_start + TRUE_CONFIRM_US)
                 continue
+
             if entry.name == RSL_STATE_ID:
                 try:
-                    # Return the first time the boolean becomes False
-                    if entry.type == "boolean" and not rec.getBoolean():
-                        return rec.timestamp
+                    if entry.type != "boolean":
+                        continue
+                    val = rec.getBoolean()
+
+                    if found_false_ts is None:
+                        # Look for first False
+                        if not val:
+                            found_false_ts = rec.timestamp
+                        # reset candidate until we've seen a False
+                        candidate_true_start = None
+                    else:
+                        # After we've seen False, look for sustained True
+                        if val:
+                            if candidate_true_start is None:
+                                candidate_true_start = rec.timestamp
+                            # If this record's timestamp is already past the confirmation threshold,
+                            # we can return the confirmation time (start + threshold)
+                            if rec.timestamp >= candidate_true_start + TRUE_CONFIRM_US:
+                                return (
+                                    found_false_ts,
+                                    candidate_true_start + TRUE_CONFIRM_US,
+                                )
+                        else:
+                            # False observed again, reset true candidate
+                            candidate_true_start = None
                 except TypeError:
                     continue
-    return None
+
+            # For non-RSL records, the passage of time can still confirm a candidate true
+            if (
+                candidate_true_start is not None
+                and rec.timestamp >= candidate_true_start + TRUE_CONFIRM_US
+            ):
+                return (found_false_ts, candidate_true_start + TRUE_CONFIRM_US)
+
+    return (found_false_ts, None)
 
 
-def crop_to_timestamp(buf: bytes, crop_ts: int) -> Optional[bytes]:
-    """Return cropped log bytes or None if input invalid."""
+def crop_to_timestamp(
+    buf: bytes, start_ts: int, end_ts: Optional[int] = None
+) -> Optional[bytes]:
+    """Return cropped log bytes or None if input invalid.
+
+    If end_ts is provided, the output will contain records with start_ts <= timestamp <= end_ts
+    (inclusive). Any entries still active at end_ts will be closed with a Finish control record
+    at end_ts so the cropped log remains consistent.
+    """
     reader = DataLogReader(buf)
     if not reader:
         return None
 
-    # First pass: collect start/setMetadata/finish info that occurred before crop_ts
+    # First pass: collect start/setMetadata/finish info that occurred before start_ts
     start_payloads: dict[int, bytes] = {}
     start_timestamps: dict[int, int] = {}
     latest_setmd: dict[int, bytes] = {}
     finished_before = set()
 
     for rec in reader:
-        if rec.timestamp >= crop_ts:
+        if rec.timestamp >= start_ts:
             continue
         if rec.isStart():
             try:
-                start_payloads[rec.getStartData().entry] = bytes(rec.data)
-                start_timestamps[rec.getStartData().entry] = rec.timestamp
+                sd = rec.getStartData()
+                start_payloads[sd.entry] = bytes(rec.data)
+                start_timestamps[sd.entry] = rec.timestamp
             except TypeError:
                 continue
         elif rec.isFinish():
@@ -85,6 +145,7 @@ def crop_to_timestamp(buf: bytes, crop_ts: int) -> Optional[bytes]:
     active_entries = [
         eid for eid in start_payloads.keys() if eid not in finished_before
     ]
+    active_set = set(active_entries)
 
     # Build output: copy header (version and extra header) from input
     out = bytearray()
@@ -94,20 +155,48 @@ def crop_to_timestamp(buf: bytes, crop_ts: int) -> Optional[bytes]:
     out += struct.pack("<I", len(extra))
     out += extra
 
-    # Emit start records for active entries (timestamp set to crop_ts)
+    # Emit start records for active entries (timestamp set to start_ts)
     for eid in active_entries:
         payload = start_payloads[eid]
-        write_record(out, 0, crop_ts, payload)
-        # If there was a setMetadata before crop_ts for this entry, emit it (so metadata matches)
+        write_record(out, 0, start_ts, payload)
+        # If there was a setMetadata before start_ts for this entry, emit it (so metadata matches)
         if eid in latest_setmd:
-            write_record(out, 0, crop_ts, latest_setmd[eid])
+            write_record(out, 0, start_ts, latest_setmd[eid])
 
-    # Second pass: write every record with timestamp >= crop_ts preserving original payloads
+    # Second pass: write every record with timestamp >= start_ts and <= end_ts (if provided)
     reader2 = DataLogReader(buf)
     for rec in reader2:
-        if rec.timestamp < crop_ts:
+        if rec.timestamp < start_ts:
             continue
+        if end_ts is not None and rec.timestamp > end_ts:
+            # records are ordered by timestamp; we can stop
+            break
+
+        # record lies within window; write it
         write_record(out, rec.entry, rec.timestamp, bytes(rec.data))
+
+        # Update active set for control records inside the window
+        if rec.isStart():
+            try:
+                sd = rec.getStartData()
+                active_set.add(sd.entry)
+            except TypeError:
+                pass
+        elif rec.isFinish():
+            try:
+                fid = rec.getFinishEntry()
+                active_set.discard(fid)
+            except TypeError:
+                pass
+
+    # If we cropped the end and there are still active entries, emit Finish records at end_ts
+    if end_ts is not None and len(active_set) > 0:
+        for eid in sorted(active_set):
+            # Finish control payload: [kControlFinish(1)] + entry_id (4 bytes little-endian)
+            payload = bytes([1]) + int(eid).to_bytes(
+                4, byteorder="little", signed=False
+            )
+            write_record(out, 0, end_ts, payload)
 
     return bytes(out)
 
@@ -116,8 +205,8 @@ def process_path(path: str) -> None:
     with open(path, "rb") as f:
         buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
-    found = _find_rsl_true_timestamp(buf)
-    if found is None:
+    found_false, found_true_after = _find_rsl_false_then_true_timestamps(buf)
+    if found_false is None:
         print(f"No RSL false found in {path}", file=sys.stderr)
         return
 
@@ -129,12 +218,24 @@ def process_path(path: str) -> None:
             min_ts = rec.timestamp
             break
 
-    # leave 5 seconds before the first false
+    # leave 5 seconds before the first false for the start crop
     five_sec = 5000000
-    crop_ts = found - five_sec
-    if crop_ts < min_ts:
-        crop_ts = min_ts
-    out_bytes = crop_to_timestamp(buf, crop_ts)
+    crop_start_ts = found_false - five_sec
+    if crop_start_ts < min_ts:
+        crop_start_ts = min_ts
+
+    # For end crop: if we found a confirmed true timestamp after the false,
+    # set the crop end to (confirmed_true - 15s). That is equivalent to
+    # leaving 5s after the true started because confirmed_true == true_start + 20s.
+    crop_end_ts: Optional[int] = None
+    if found_true_after is not None:
+        crop_end_ts = found_true_after - 15000000
+
+    # If the computed end would be before the start crop, ignore end cropping.
+    if crop_end_ts is not None and crop_end_ts <= crop_start_ts:
+        crop_end_ts = None
+
+    out_bytes = crop_to_timestamp(buf, crop_start_ts, crop_end_ts)
     if out_bytes is None:
         print(f"Not a valid log: {path}", file=sys.stderr)
         return
@@ -145,14 +246,10 @@ def process_path(path: str) -> None:
         f.write(out_bytes)
 
 
-def _usage_and_exit():
-    print("Usage: croplogs.py <file1> [file2 ...]", file=sys.stderr)
-    sys.exit(1)
-
-
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        _usage_and_exit()
+        print("Usage: croplogs.py <file1> [file2 ...]", file=sys.stderr)
+        sys.exit(1)
 
     for p in sys.argv[1:]:
         process_path(p)
