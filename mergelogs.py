@@ -20,8 +20,8 @@ def merge_logs(log1_path: str, log2_path: str, output_path: str) -> None:
     if not reader2:
         raise ValueError(f"Not a valid WPILOG file: {log2_path}")
 
+    # basic header (v1.0) and empty extra header
     out = bytearray()
-
     out += b"WPILOG"
     out += struct.pack("<H", 0x0100)
     out += struct.pack("<I", 0)
@@ -29,6 +29,8 @@ def merge_logs(log1_path: str, log2_path: str, output_path: str) -> None:
     max_entry_id = 0
     last_timestamp = 0
 
+    # copy records from the first log without editing
+    # track the last timestamp of the 1st log to offset the 2nd
     for record in reader1:
         write_record(out, record.entry, record.timestamp, bytes(record.data))
         if record.timestamp > last_timestamp:
@@ -41,6 +43,7 @@ def merge_logs(log1_path: str, log2_path: str, output_path: str) -> None:
             except TypeError:
                 pass
 
+    # offset the timestamps of the 2nd log and add a 1 ms gap to prevend collision
     timestamp_offset = last_timestamp + 1000  # microseconds
 
     entry_id_map: dict[int, int] = {}
