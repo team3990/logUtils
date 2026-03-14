@@ -1,9 +1,10 @@
 import argparse
 import mmap
 import struct
+from typing import Optional
 
 from lib.datalog import DataLogReader
-from lib.utils import patch_control_entry_id, write_record
+from lib.utils import patch_control_entry_id, write_new_record, write_record
 
 
 def merge_logs(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
@@ -32,10 +33,12 @@ def merge_logs(input_paths: list[str], output_path: str, gap_ms: int = 1) -> Non
         if not reader:
             raise ValueError(f"Not a valid WPILOG file: {path}")
 
-        # For the first file, copy verbatim and initialize next_entry_id
         if i == 0:
+            # first quick scan to discover first timestamp, last timestamp and max entry id
+            first_ts: Optional[int] = None
             for record in reader:
-                write_record(out, record.entry, record.timestamp, bytes(record.data))
+                if first_ts is None:
+                    first_ts = record.timestamp
                 if record.timestamp > last_timestamp:
                     last_timestamp = record.timestamp
                 if record.isStart():
@@ -46,13 +49,46 @@ def merge_logs(input_paths: list[str], output_path: str, gap_ms: int = 1) -> Non
                     except TypeError:
                         pass
 
+            # prepare next_entry_id and annotation
             next_entry_id = max_entry_id + 1
-            # small gap after the first file
-            last_timestamp = last_timestamp
+
+            # place annotation just before the first record (one microsecond before)
+            if first_ts is None:
+                # empty file — nothing to copy, continue
+                continue
+            annotation_entry = next_entry_id
+            next_entry_id += 1
+            annotation_ts = max(0, first_ts - 1)
+
+            ann_name = "nextLog"
+            ann_type = "string"
+            write_new_record(out, annotation_ts, annotation_entry, ann_name, ann_type, path.encode("utf-8"))
+
+            # second pass: write the file records verbatim
+            reader2 = DataLogReader(buf)
+            for record in reader2:
+                write_record(out, record.entry, record.timestamp, bytes(record.data))
         else:
-            # gap in microseconds
+            # gap in microseconds. Ensure we leave at least a tiny slot so the
+            # annotation can be placed immediately after the previous file and
+            # before any records from the next file.
             gap_us = int(gap_ms * 1000)
-            timestamp_offset = last_timestamp + gap_us
+            # Add a small safety delta so the next file's first record is strictly
+            # after the annotation.
+            SAFETY_US = 2
+            timestamp_offset = last_timestamp + gap_us + SAFETY_US
+
+            # add a string entry to indicate file name of next match (the annotation)
+            annotation_entry = next_entry_id
+            next_entry_id += 1
+            # place the annotation immediately after the end of the previous file
+            # (one microsecond after last_timestamp)
+            annotation_ts = last_timestamp + 1
+
+            # Write a Start control for the annotation entry and a single string data record
+            ann_name = "nextLog"
+            ann_type = "string"
+            write_new_record(out, annotation_ts, annotation_entry, ann_name, ann_type, path.encode("utf-8"))
 
             # map of entry ids for this file -> new entry id in output
             entry_id_map: dict[int, int] = {}
@@ -108,4 +144,4 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    merge_logs(args.inputs, args.output, gap_ms=args.gap)
+    merge_logs(args.inputs, args.output, args.gap)
