@@ -3,6 +3,7 @@ import os
 import struct
 import sys
 from argparse import ArgumentParser
+from glob import glob
 from typing import Optional
 
 from lib.datalog import DataLogReader
@@ -294,6 +295,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
-    for p in args.paths:
-        print(f"Processing {p}")
-        process_path(p, args.start_pad, args.end_pad)
+    for g in args.paths:
+        for p in glob(g):
+            print(f"Processing {p}")
+            process_path(p, args.start_pad, args.end_pad)
