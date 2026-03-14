@@ -1,5 +1,9 @@
 # Log things
 
+## Setup
+
+download and unzip the artifact from the latest successful [actions build](https://github.com/team3990/logMerger/actions/workflows/build.yml)
+
 ## Log merger
 
 will merge 2 logs in one
@@ -10,7 +14,7 @@ python mergelogs.py -o output.wpilog log1.wpilog log2.wpilog
 
 by default, it leaves a 1 second gap between logs
 you can edit it using the `--gap=...` argument
-for example, `python mergelogs.py --gap=2000 -o output.wpilog log1.wpilog log2.wpilog` to have a 2 second gap
+for example, `mergelogs.exe --gap=2000 -o output.wpilog log1.wpilog log2.wpilog` to have a 2 second gap
 
 ## Log cropper
 
@@ -26,4 +30,4 @@ if you want to edit the padding (time before and after the match), you can use t
 - `--start-pad`
 - `--end-pad`
 
-for example, `python croplogs.py log1.wpilog --start-pad=3000` to have 3 seconds instead of 5 before the match
+for example, `croplogs.exe log1.wpilog --start-pad=3000` to have 3 seconds instead of 5 before the match

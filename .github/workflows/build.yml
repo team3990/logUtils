@@ -12,7 +12,7 @@ jobs:
         with:
           python-version: 3.14
       - name: Create venv
-        run: python3 -m venv .venv
+        run: python -m venv .venv
       - name: Setup venv
         run: .venv\Scripts\pip install msgpack pyinstaller
       - name: Build croplogs
