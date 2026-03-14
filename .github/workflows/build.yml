@@ -1,0 +1,25 @@
+name: Build executables
+
+on: workflow_dispatch
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.14
+      - name: Create venv
+        run: python3 -m venv .venv
+      - name: Setup venv
+        run: .venv\Scripts\pip install msgpack pyinstaller
+      - name: Build croplogs
+        run: .venv\Scripts\pyinstaller croplogs.py --onefile
+      - name: Build mergelogs
+        run: .venv\Scripts\pyinstaller mergelogs.py --onefile
+      - name: Upload executables
+        uses: actions/upload-artifact@v5
+        with:
+          path: dist
