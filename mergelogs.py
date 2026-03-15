@@ -10,7 +10,13 @@ if __name__ == "__main__":
         "inputs", nargs="+", help="Input WPILOG files to concatenate (order matters)"
     )
     parser.add_argument("-o", "--output", required=True, help="Output WPILOG path")
-    parser.add_argument("-c", "--no-crop", required=False, help="Do not crop before merging", default=False)
+    parser.add_argument(
+        "-c",
+        "--no-crop",
+        required=False,
+        help="Do not crop before merging",
+        default=False,
+    )
     parser.add_argument(
         "-g",
         "--gap",

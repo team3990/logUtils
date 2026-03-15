@@ -61,7 +61,14 @@ def merge(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
 
             ann_name = "nextLog"
             ann_type = "string"
-            write_new_record(out, annotation_ts, annotation_entry, ann_name, ann_type, path.encode("utf-8"))
+            write_new_record(
+                out,
+                annotation_ts,
+                annotation_entry,
+                ann_name,
+                ann_type,
+                path.encode("utf-8"),
+            )
 
             # second pass: write the file records verbatim
             reader2 = DataLogReader(buf)
@@ -87,7 +94,14 @@ def merge(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
             # Write a Start control for the annotation entry and a single string data record
             ann_name = "nextLog"
             ann_type = "string"
-            write_new_record(out, annotation_ts, annotation_entry, ann_name, ann_type, path.encode("utf-8"))
+            write_new_record(
+                out,
+                annotation_ts,
+                annotation_entry,
+                ann_name,
+                ann_type,
+                path.encode("utf-8"),
+            )
 
             # map of entry ids for this file -> new entry id in output
             entry_id_map: dict[int, int] = {}

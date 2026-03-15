@@ -225,9 +225,7 @@ def crop_to_timestamp(
     return bytes(out)
 
 
-def crop(
-    path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000
-) -> None:
+def crop(path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000) -> None:
     with open(path, "rb") as f:
         buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
 
