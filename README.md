@@ -2,7 +2,7 @@
 
 ## Setup
 
-download and unzip the artifact from the latest successful [actions build](https://github.com/team3990/logMerger/actions/workflows/build.yml)
+download the executables from the latest [release](https://github.com/team3990/logUtils/releases/latest)
 
 ## Log merger
 
