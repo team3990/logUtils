@@ -1,10 +1,10 @@
-import sys
 from argparse import ArgumentParser
-from glob import glob
 from os import path
+from sys import argv, stderr
 
 from lib.croplib import crop
 from lib.mergelib import merge
+from lib.utils import glob
 
 
 def cmd_crop(args: ArgumentParser) -> int:
@@ -13,7 +13,7 @@ def cmd_crop(args: ArgumentParser) -> int:
     for pattern in args.paths:
         files.extend(glob(pattern))
     if not files:
-        print("No files matched the given patterns", file=sys.stderr)
+        print("No files matched the given patterns", file=stderr)
         return 2
 
     for p in files:
@@ -29,7 +29,7 @@ def cmd_merge(args: ArgumentParser) -> int:
     for pattern in args.inputs:
         inputs.extend(glob(pattern))
     if not inputs:
-        print("No input files matched the given patterns", file=sys.stderr)
+        print("No input files matched the given patterns", file=stderr)
         return 2
 
     # Optionally crop inputs before merging. Cropped filenames are assumed to be
@@ -86,7 +86,7 @@ def main() -> int:
         help="Crop inputs before merging (uses gap/3 for pads)",
     )
 
-    args = parser.parse_args(sys.argv[1:])
+    args = parser.parse_args(argv[1:])
     if args.cmd == "crop":
         return cmd_crop(args)
     if args.cmd == "merge":

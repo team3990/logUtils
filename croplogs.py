@@ -1,7 +1,7 @@
 from argparse import ArgumentParser
-from glob import glob
 
 from lib.croplib import crop
+from lib.utils import glob
 
 if __name__ == "__main__":
     parser = ArgumentParser(description="Crop log files based on rsl state")

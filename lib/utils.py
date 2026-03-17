@@ -1,6 +1,6 @@
-import re
 from enum import Enum
 from os import path
+from re import search
 
 
 def _encode_varint(value: int, length: int) -> bytes:
@@ -42,7 +42,9 @@ def patch_control_entry_id(data: bytes, new_entry_id: int) -> bytes:
     return bytes([data[0]]) + new_entry_id.to_bytes(4, byteorder="little") + data[5:]
 
 
-def make_start_payload(entry_id: int, name: str, type_str: str, metadata: str = "") -> bytes:
+def _make_start_payload(
+    entry_id: int, name: str, type_str: str, metadata: str = ""
+) -> bytes:
     nb = name.encode("utf-8")
     tb = type_str.encode("utf-8")
     mb = metadata.encode("utf-8")
@@ -53,8 +55,10 @@ def make_start_payload(entry_id: int, name: str, type_str: str, metadata: str = 
     return payload
 
 
-def write_new_record(out: bytearray, ts: int, entry_id: int, name: str, type_str: str, data_bytes: bytes) -> None:
-    start_payload = make_start_payload(entry_id, name, type_str)
+def write_new_record(
+    out: bytearray, ts: int, entry_id: int, name: str, type_str: str, data_bytes: bytes
+) -> None:
+    start_payload = _make_start_payload(entry_id, name, type_str)
     write_record(out, 0, ts, start_payload)
     write_record(out, entry_id, ts, data_bytes)
 
@@ -71,7 +75,7 @@ def find_match_type(log_name: str) -> tuple[MatchType, int, bool] | None:
     # Look for a match-type letter (P/Q/E) followed by a match number and
     # optional "-cropped" suffix before the extension. Examples we should
     # match: "..._P14.wpilog", "..._Q67-cropped.wpilog", "..._E13.wpilog".
-    m = re.search(
+    m = search(
         r"(?P<type>[PQE])(?P<number>\d+)(?P<cropped>-cropped)?(?:\.wpilog)$", base
     )
 

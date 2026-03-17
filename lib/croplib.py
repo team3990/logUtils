@@ -1,7 +1,7 @@
-import mmap
-import os
-import struct
-import sys
+from mmap import ACCESS_READ, mmap
+from os import path
+from struct import pack
+from sys import stderr
 from typing import Optional
 
 from lib.datalog import DataLogReader
@@ -162,9 +162,9 @@ def crop_to_timestamp(
     # Build output: copy header (version and extra header) from input
     out = bytearray()
     out += b"WPILOG"
-    out += struct.pack("<H", reader.getVersion())
+    out += pack("<H", reader.getVersion())
     extra = reader.getExtraHeader().encode("utf-8")
-    out += struct.pack("<I", len(extra))
+    out += pack("<I", len(extra))
     out += extra
 
     # Emit start records for active entries (timestamp set to start_ts)
@@ -225,13 +225,13 @@ def crop_to_timestamp(
     return bytes(out)
 
 
-def crop(path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000) -> None:
-    with open(path, "rb") as f:
-        buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+def crop(log_path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000) -> None:
+    with open(log_path, "rb") as f:
+        buf = mmap(f.fileno(), 0, access=ACCESS_READ)
 
     found_false, found_true_after = _find_rsl_false_then_true_timestamps(buf)
     if found_false is None:
-        print(f"No RSL false found in {path}", file=sys.stderr)
+        print(f"No RSL false found in {log_path}", file=stderr)
         return
 
     # determine earliest timestamp in the file (used to clamp the crop)
@@ -263,10 +263,10 @@ def crop(path: str, start_pad_ms: float = 5000, end_pad_ms: float = 5000) -> Non
 
     out_bytes = crop_to_timestamp(buf, crop_start_ts, crop_end_ts)
     if out_bytes is None:
-        print(f"Not a valid log: {path}", file=sys.stderr)
+        print(f"Not a valid log: {log_path}", file=stderr)
         return
 
-    base, ext = os.path.splitext(path)
+    base, ext = path.splitext(log_path)
     out_path = f"{base}-cropped{ext}"
     with open(out_path, "wb") as f:
         f.write(out_bytes)

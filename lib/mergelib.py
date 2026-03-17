@@ -1,5 +1,5 @@
-import mmap
-import struct
+from mmap import ACCESS_READ, mmap
+from struct import pack
 from typing import Optional
 
 from lib.datalog import DataLogReader
@@ -13,8 +13,8 @@ def merge(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
     # basic header (v1.0) and empty extra header
     out = bytearray()
     out += b"WPILOG"
-    out += struct.pack("<H", 0x0100)
-    out += struct.pack("<I", 0)
+    out += pack("<H", 0x0100)
+    out += pack("<I", 0)
 
     max_entry_id = 0
     last_timestamp = 0
@@ -26,7 +26,7 @@ def merge(input_paths: list[str], output_path: str, gap_ms: int = 1) -> None:
     # seen so far) and offset timestamps so the file sits after the previous one.
     for i, path in enumerate(input_paths):
         with open(path, "rb") as f:
-            buf = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+            buf = mmap(f.fileno(), 0, access=ACCESS_READ)
 
         reader = DataLogReader(buf)
         if not reader:
