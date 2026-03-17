@@ -22,11 +22,11 @@ jobs:
       - name: Setup venv
         run: .venv\Scripts\pip install msgpack pyinstaller
       - name: Build croplogs
-        run: .venv\Scripts\pyinstaller croplogs.py --onefile
+        run: .venv\Scripts\pyinstaller croplogs.spec
       - name: Build mergelogs
-        run: .venv\Scripts\pyinstaller mergelogs.py --onefile
+        run: .venv\Scripts\pyinstaller mergelogs.spec
       - name: Build all-in-one
-        run: .venv\Scripts\pyinstaller logutils.py --onefile
+        run: .venv\Scripts\pyinstaller logutils.spec
       - name: Create checksum files
         run: |
           cd dist;

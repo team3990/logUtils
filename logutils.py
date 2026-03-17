@@ -1,7 +1,7 @@
-import os
 import sys
 from argparse import ArgumentParser
 from glob import glob
+from os import path
 
 from lib.croplib import crop
 from lib.mergelib import merge
@@ -39,7 +39,7 @@ def cmd_merge(args: ArgumentParser) -> int:
         for p in inputs:
             print(f"Pre-cropping {p}")
             crop(p, args.gap / 3.0, args.gap / 3.0)
-            base, ext = os.path.splitext(p)
+            base, ext = path.splitext(p)
             cropped.append(f"{base}-cropped{ext}")
         inputs = cropped
 
@@ -48,10 +48,7 @@ def cmd_merge(args: ArgumentParser) -> int:
     return 0
 
 
-def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
-
+def main() -> int:
     parser = ArgumentParser(description="Log utilities: crop and merge WPILOG files")
     sub = parser.add_subparsers(dest="cmd")
 
@@ -89,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Crop inputs before merging (uses gap/3 for pads)",
     )
 
-    args = parser.parse_args(argv)
+    args = parser.parse_args(sys.argv[1:])
     if args.cmd == "crop":
         return cmd_crop(args)
     if args.cmd == "merge":
