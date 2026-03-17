@@ -19,6 +19,8 @@ jobs:
         run: .venv\Scripts\pyinstaller croplogs.py --onefile
       - name: Build mergelogs
         run: .venv\Scripts\pyinstaller mergelogs.py --onefile
+      - name: Build all-in-one
+        run: .venv\Scripts\pyinstaller logutils.py --onefile
       - name: Upload executables
         uses: actions/upload-artifact@v5
         with:
