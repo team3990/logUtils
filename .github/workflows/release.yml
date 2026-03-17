@@ -1,6 +1,6 @@
-name: Add checksums to releases
+name: Release
 
-on: [release, workflow_dispatch]
+on: release
 
 defaults:
   run:
@@ -10,6 +10,21 @@ jobs:
   job:
     runs-on: windows-latest
     steps:
+      - uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.14
+      - name: Create venv
+        run: python -m venv .venv
+      - name: Setup venv
+        run: .venv\Scripts\pip install msgpack pyinstaller
+      - name: Build croplogs
+        run: .venv\Scripts\pyinstaller croplogs.py --onefile
+      - name: Build mergelogs
+        run: .venv\Scripts\pyinstaller mergelogs.py --onefile
+      - name: Build all-in-one
+        run: .venv\Scripts\pyinstaller logutils.py --onefile
       - uses: robinraju/release-downloader@v1
         with:
           latest: true
@@ -22,10 +37,10 @@ jobs:
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
             Set-Content -Path "$($_.FullName).sha256" -Value $hash
           }
-      - name: Upload checksum files
+      - name: Upload files
         uses: xresloader/upload-to-github-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          file: "*.sha256"
+          file: "dist/*.exe; *.sha256"
           update_latest_release: true
