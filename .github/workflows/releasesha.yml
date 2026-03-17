@@ -16,5 +16,16 @@ jobs:
           fileName: "*.exe"
           tarBall: false
           zipBall: false
-      - name: List files (test)
-        run: ls
+      - name: Create checksum files
+        run: |
+          Get-ChildItem -Filter "*.exe" | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
+            Set-Content -Path "$($_.FullName).sha256" -Value $hash
+          }
+      - name: Upload checksum files
+        uses: xresloader/upload-to-github-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          file: "*.sha256"
+          update_latest_release: true
