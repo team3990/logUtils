@@ -1,6 +1,8 @@
 name: Release
 
-on: release
+on:
+  release:
+    types: [published]
 
 defaults:
   run:
@@ -25,14 +27,9 @@ jobs:
         run: .venv\Scripts\pyinstaller mergelogs.py --onefile
       - name: Build all-in-one
         run: .venv\Scripts\pyinstaller logutils.py --onefile
-      - uses: robinraju/release-downloader@v1
-        with:
-          latest: true
-          fileName: "*.exe"
-          tarBall: false
-          zipBall: false
       - name: Create checksum files
         run: |
+          cd dist;
           Get-ChildItem -Filter "*.exe" | ForEach-Object {
             $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash
             Set-Content -Path "$($_.FullName).sha256" -Value $hash
