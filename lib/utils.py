@@ -1,3 +1,4 @@
+import glob as stdglob
 from enum import Enum
 from os import path
 from re import search
@@ -63,42 +64,41 @@ def write_new_record(
     write_record(out, entry_id, ts, data_bytes)
 
 
-def find_match_type(log_name: str) -> tuple[MatchType, int, bool] | None:
-    # Examples
-    # Not a match : FRC_20260308_003853.wpilog = None
-    # Practice match number 14, not cropped : FRC_20260305_235541_BCVI_P14.wpilog = (PRACTICE, 14, false)
-    # Qualif match number 67, cropped : FRC_20260307_184832_BCVI_Q67-cropped.wpilog = (QUALIFICATION, 67, true)
-    # Playoff match number 13, not cropped : FRC_20260308_001853_BCVI_E13.wpilog = (PLAYOFF, 13, false)
-    # Work with the base filename only
-    base = path.basename(log_name)
+def glob(globPattern: str) -> list[str]:
+    # Support simple keywords for match types and optional negation prefixes
+    # Examples:
+    #  - "practice" or "p" -> return all files that look like practice matches
+    #  - "-practice" or "!p" -> return all files that are not practice (quals and elims)
+    low = globPattern.strip().lower().removesuffix("s")
+    neg = False
+    if low and low[0] in ("-", "!"):
+        neg = True
+        low = low[1:]
 
-    # Look for a match-type letter (P/Q/E) followed by a match number and
-    # optional "-cropped" suffix before the extension. Examples we should
-    # match: "..._P14.wpilog", "..._Q67-cropped.wpilog", "..._E13.wpilog".
-    m = search(
-        r"(?P<type>[PQE])(?P<number>\d+)(?P<cropped>-cropped)?(?:\.wpilog)$", base
-    )
+    practice = {"p", "practice", "practise", "pratique"}
+    qual = {"q", "qual", "qualif", "qualification"}
+    elim = {"e", "elim", "elimination", "playoff"}
 
-    if not m:
-        return None
+    # If the user asked for a specific match-type (or its negation), expand
+    # to simple filename globs that look for _P / _Q / _E in the filename.
+    if low in practice or low in qual or low in elim:
+        wanted = []
+        if low in practice:
+            wanted.append("P")
+        if low in qual:
+            wanted.append("Q")
+        if low in elim:
+            wanted.append("E")
 
-    t = m.group("type")
-    num = int(m.group("number"))
-    cropped = bool(m.group("cropped"))
+        if neg:
+            include = [t for t in ("P", "Q", "E") if t not in wanted]
+        else:
+            include = wanted
 
-    if t == MatchType.PRACTICE.value:
-        mt = MatchType.PRACTICE
-    elif t == MatchType.QUALIFICATION.value:
-        mt = MatchType.QUALIFICATION
-    elif t == MatchType.PLAYOFF.value:
-        mt = MatchType.PLAYOFF
-    else:
-        return None
+        results = []
+        for t in include:
+            results.extend(stdglob.glob(f"*_{t}*.wpilog"))
 
-    return (mt, num, cropped)  # match type, match number, is cropped
+        return sorted(set(results))
 
-
-class MatchType(Enum):
-    PRACTICE = "P"
-    QUALIFICATION = "Q"
-    PLAYOFF = "E"
+    return stdglob.glob(globPattern)
